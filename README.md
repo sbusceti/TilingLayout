@@ -37,7 +37,7 @@ Then add the dependency in your module's `build.gradle.kts`:
 
 ```kotlin
 commonMain.dependencies {
-    implementation("com.github.sbusceti:tilinglayout:1.0.0")
+    implementation("com.github.sbusceti.TilingLayout:tilinglayout:1.0.0")
 }
 ```
 
