@@ -64,7 +64,7 @@ kotlin {
 
 android {
     namespace = "it.stefanobusceti.tilinglayout"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "it.stefanobusceti.tilinglayout"
