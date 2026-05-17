@@ -214,4 +214,4 @@ fun LayoutScreenContent(
 
 ---
 
-> This library was built as a final project for the [Compose Multiplatform](https://kt.academy) course on **kt.academy**.
+> This library was built as a final project for the [Advanced Compose](https://kt.academy) course on **kt.academy**.
