@@ -38,7 +38,9 @@ interface TilingLayoutScope {
 internal class TilingLayoutScopeImpl : TilingLayoutScope {
 
     private val children = mutableListOf<TilingNode>()
-    val leafContents = mutableMapOf<String, @Composable () -> Unit>()
+    private val leafContents = mutableMapOf<String, @Composable () -> Unit>()
+
+    internal fun getLeafContent(id: String): (@Composable () -> Unit)? = leafContents[id]
 
     @OptIn(ExperimentalUuidApi::class)
     override fun leaf(content: @Composable (() -> Unit)) {

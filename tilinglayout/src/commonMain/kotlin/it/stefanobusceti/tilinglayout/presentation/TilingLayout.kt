@@ -22,6 +22,11 @@ import kotlin.math.roundToInt
 
 private const val GAP_ID = "gap"
 
+private data class PlacedNode(
+    val placeable: Placeable,
+    val offset: IntOffset
+)
+
 /**
  * Lays out composable content according to a [TilingNode] tree.
  *
@@ -101,8 +106,8 @@ fun TilingLayout(
         val gapsQueue = ArrayDeque(measurables.filter { it.layoutId == GAP_ID })
         val placeableList = measureLeaf(node, constraints, leavesQueue, gapsQueue, gapThicknessPx, ratios)
         layout(constraints.maxWidth, constraints.maxHeight) {
-            placeableList.forEach { (child, childConstraints) ->
-                child.placeRelative(childConstraints.x, childConstraints.y)
+            placeableList.forEach { node ->
+                node.placeable.placeRelative(node.offset.x, node.offset.y)
             }
         }
     }
@@ -126,7 +131,7 @@ private fun measureLeaf(
     gaps: ArrayDeque<Measurable>,
     gapThicknessPx: Int,
     ratios: Map<String, Float>
-): List<Pair<Placeable, IntOffset>> {
+): List<PlacedNode> {
     val maxWidth = constraints.maxWidth
     val maxHeight = constraints.maxHeight
 
@@ -153,11 +158,11 @@ private fun measureLeaf(
             val rightNode = measureLeaf(node.rightNode, rightConstraints, leaves, gaps, gapThicknessPx, ratios)
             val leftOffset = IntOffset(x = 0, y = 0)
             val rightOffset = IntOffset(x = maxLeftWidth + gapThicknessPx, y = 0)
-            val translatedLeft = leftNode.map { (placeable, offset) ->
-                Pair(placeable, offset + leftOffset)
+            val translatedLeft = leftNode.map { node ->
+                PlacedNode(node.placeable, node.offset + leftOffset)
             }
-            val translatedRight = rightNode.map { (placeable, offset) ->
-                Pair(placeable, offset + rightOffset)
+            val translatedRight = rightNode.map { node ->
+                PlacedNode(node.placeable, node.offset + rightOffset)
             }
             return translatedLeft + listOf(gap) + translatedRight
         }
@@ -184,11 +189,11 @@ private fun measureLeaf(
             val bottomNode = measureLeaf(node.bottomNode, bottomConstraints, leaves, gaps, gapThicknessPx, ratios)
             val topOffset = IntOffset(x = 0, y = 0)
             val bottomOffset = IntOffset(x = 0, y = maxTopHeight + gapThicknessPx)
-            val translatedTop = topNode.map { (placeable, offset) ->
-                Pair(placeable, offset + topOffset)
+            val translatedTop = topNode.map { node ->
+                PlacedNode(node.placeable, node.offset + topOffset)
             }
-            val translatedBottom = bottomNode.map { (placeable, offset) ->
-                Pair(placeable, offset + bottomOffset)
+            val translatedBottom = bottomNode.map { node ->
+                PlacedNode(node.placeable, node.offset + bottomOffset)
             }
             return translatedTop + listOf(gap) + translatedBottom
         }
@@ -196,7 +201,7 @@ private fun measureLeaf(
         is TilingNode.Leaf -> {
             val measurable = leaves.removeFirst()
             val placeable = measurable.measure(constraints)
-            return listOf(Pair(placeable, IntOffset(0, 0)))
+            return listOf(PlacedNode(placeable, IntOffset(0, 0)))
         }
 
         TilingNode.EmptyNode -> {
@@ -212,7 +217,7 @@ private fun measureGap(
     constraints: Constraints,
     offset: IntOffset,
     gapThicknessPx: Int,
-): Pair<Placeable, IntOffset> = when (gapType) {
+): PlacedNode = when (gapType) {
     GapType.HORIZONTAL -> {
         val placeable = measurable.measure(
             Constraints(
@@ -222,7 +227,7 @@ private fun measureGap(
                 maxHeight = gapThicknessPx
             )
         )
-        Pair(placeable, offset)
+        PlacedNode(placeable, offset)
     }
 
     GapType.VERTICAL -> {
@@ -234,7 +239,7 @@ private fun measureGap(
                 maxHeight = constraints.maxHeight
             )
         )
-        Pair(placeable, offset)
+        PlacedNode(placeable, offset)
     }
 }
 
@@ -318,7 +323,7 @@ fun TilingLayout(
         node = scope.buildNode(),
         modifier = modifier,
         gap = gap,
-        leafContent = { id -> scope.leafContents[id]?.invoke() }
+        leafContent = { id -> scope.getLeafContent(id)?.invoke() }
     )
 }
 
