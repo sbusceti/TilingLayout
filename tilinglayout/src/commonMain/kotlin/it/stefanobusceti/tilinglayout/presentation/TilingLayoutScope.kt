@@ -45,7 +45,7 @@ internal class TilingLayoutScopeImpl : TilingLayoutScope {
     @OptIn(ExperimentalUuidApi::class)
     override fun leaf(content: @Composable (() -> Unit)) {
         val id = Uuid.random().toString()
-        children.add(TilingNode.Leaf(id))
+        //children.add(TilingNode.Leaf(id))
         leafContents[id] = content
     }
 
@@ -62,7 +62,7 @@ internal class TilingLayoutScopeImpl : TilingLayoutScope {
 
         val left = childScope.children[0]
         val right = childScope.children[1]
-        children.add(TilingNode.HSplit(leftNode = left, rightNode = right, ratio = ratio))
+        //children.add(TilingNode.HSplit(leftNode = left, rightNode = right, ratio = ratio))
         leafContents.putAll(childScope.leafContents)
     }
 
@@ -79,9 +79,9 @@ internal class TilingLayoutScopeImpl : TilingLayoutScope {
 
         val top = childScope.children[0]
         val bottom = childScope.children[1]
-        children.add(TilingNode.VSplit(topNode = top, bottomNode = bottom, ratio = ratio))
+        //children.add(TilingNode.VSplit(topNode = top, bottomNode = bottom, ratio = ratio))
         leafContents.putAll(childScope.leafContents)
     }
 
-    fun buildNode() = children.firstOrNull() ?: TilingNode.EmptyNode
+    fun buildNode() = children.firstOrNull() ?: TilingNode.EmptyNode()
 }
