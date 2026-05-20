@@ -29,6 +29,9 @@ fun DashboardScreenContent(
     TilingLayout(
         modifier = modifier,
         node = state.node,
+        onRatiosChanged = { ratios ->
+            onAction(DashboardScreenAction.UpdateRatios(ratios))
+        }
     ) { nodeId ->
         Widget(
             title = "Widget $nodeId",

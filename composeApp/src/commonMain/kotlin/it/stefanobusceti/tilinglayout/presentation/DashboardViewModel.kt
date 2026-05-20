@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import it.stefanobusceti.tilinglayout.domain.SplitDirection
 import it.stefanobusceti.tilinglayout.domain.TilingNode
 import it.stefanobusceti.tilinglayout.domain.remove
+import it.stefanobusceti.tilinglayout.domain.updateRatios
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -22,7 +23,7 @@ class DashboardViewModel : ViewModel() {
                             TilingNode.Leaf("3"),
                             TilingNode.Leaf("4"),
                         )
-                    )
+                    ),
                 )
             )
         )
@@ -34,6 +35,11 @@ class DashboardViewModel : ViewModel() {
             is DashboardScreenAction.AddWidget -> {}
             is DashboardScreenAction.RemoveWidget -> {
                 _state.update { it.copy(node = state.value.node.remove(action.widgetId)) }
+            }
+
+            is DashboardScreenAction.UpdateRatios -> {
+                _state.update { it.copy(node = state.value.node.updateRatios(action.ratios)) }
+                //_state.value.node.updateRatios(action.ratios)
             }
         }
     }

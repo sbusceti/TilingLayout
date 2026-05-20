@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import it.stefanobusceti.tilinglayout.domain.SplitDirection
 import it.stefanobusceti.tilinglayout.domain.TilingNode
+import it.stefanobusceti.tilinglayout.domain.collectSplitIds
 import it.stefanobusceti.tilinglayout.domain.leavesId
 import kotlin.math.roundToInt
 
@@ -45,12 +46,20 @@ fun TilingLayout(
     node: TilingNode,
     modifier: Modifier = Modifier.fillMaxSize(),
     gap: GapDefaults = GapDefaults(),
+    onRatiosChanged: (Map<String, List<Float>>) -> Unit = {},
     leafContent: @Composable (id: String) -> Unit,
 ) {
 
     val ratios = remember { mutableStateMapOf<String, List<Float>>() }
     val leafs = remember { mutableMapOf<String, @Composable () -> Unit>() }
     val splitSizes = remember { mutableStateMapOf<String, Int>() }
+
+    LaunchedEffect(node) {
+        ratios.keys.retainAll(node.collectSplitIds())
+        splitSizes.keys.retainAll(node.collectSplitIds())
+    }
+
+    println("initial ratio: $node")
 
     leafs.keys.retainAll(node.leavesId().toSet())
 
@@ -93,6 +102,9 @@ fun TilingLayout(
                             },
                             gapThickness = gap.thickness,
                             sizeProvider = { splitSizes[node.id] ?: 1 },
+                            onDragEnd = {
+                                onRatiosChanged(ratios)
+                            }
                         )
                     }
                 }
@@ -268,12 +280,14 @@ private fun Gap(
     color: Color = Color.Transparent,
     onRatioChanged: (Float) -> Unit,
     gapThickness: Dp,
-    sizeProvider: () -> Int
+    sizeProvider: () -> Int,
+    onDragEnd: () -> Unit,
 ) {
+    val currentOnRatioChanged by rememberUpdatedState(onRatioChanged)
+
     val modifier = Modifier.layoutId(GAP_ID)
     when (gapType) {
         GapType.HORIZONTAL -> {
-            var totalHeight by remember { mutableStateOf(0) }
             HorizontalDivider(
                 thickness = gapThickness,
                 color = color,
@@ -284,8 +298,9 @@ private fun Gap(
                         detectDragGestures(
                             onDrag = { change, dragAmount ->
                                 change.consume()
-                                onRatioChanged(dragAmount.y / sizeProvider())
-                            }
+                                currentOnRatioChanged(dragAmount.y / sizeProvider())
+                            },
+                            onDragEnd = onDragEnd,
                         )
                     })
         }
@@ -302,7 +317,9 @@ private fun Gap(
                             onDrag = { change, dragAmount ->
                                 change.consume()
                                 onRatioChanged(dragAmount.x / sizeProvider())
-                            })
+                            },
+                            onDragEnd = onDragEnd,
+                        )
                     })
         }
     }
