@@ -143,8 +143,8 @@ fun TilingLayout(
  * exactly one entry per [TilingNode.Leaf] and per split node respectively.
  * Gap space ([gapThicknessPx]) is subtracted from the available area before distributing
  * the remainder according to each split's ratio.
- * [ratios] overrides the static ratio declared in each split node with the value dragged by the user;
- * falls back to [TilingNode.HSplit.ratio] / [TilingNode.VSplit.ratio] when no override exists.
+ * [ratios] overrides the static ratio declared in each [TilingNode.Split]'s children with the
+ * user-dragged values; falls back to each child's [TilingNode.ratio] when no override exists.
  * Returns a flat list of (Placeable, offset) pairs ready to be placed by the parent layout.
  */
 private fun measureLeaf(
