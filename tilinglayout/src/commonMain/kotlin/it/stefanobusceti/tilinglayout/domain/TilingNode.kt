@@ -4,162 +4,58 @@ import androidx.compose.runtime.Stable
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
+/**
+ * Immutable sealed class hierarchy representing a tiling layout tree.
+ *
+ * A tree is built from [Leaf] terminal nodes (rendered panes) and [Split] internal nodes
+ * (divides space among 2 or more children). [EmptyNode] represents the absence of content.
+ *
+ * All tree operations (e.g., [remove], [updateRatios]) are pure functions that return a new
+ * tree without mutating the original.
+ *
+ * @property ratio Relative weight within the parent [Split]. Only the ratios of siblings matter
+ * relative to each other; they are normalised at layout time so absolute values are arbitrary.
+ */
 @Stable
-/** Tree structure describing how to partition a rectangular area into tiles. */
 sealed class TilingNode {
-    data object EmptyNode : TilingNode()
-    /** Terminal node that holds actual content, identified by [id]. */
-    data class Leaf(val id: String) : TilingNode()
+    abstract val ratio: Float
+
+    /** Signals that no layout should be rendered. Used as the initial/empty state. */
+    data class EmptyNode(override val ratio: Float = 0f) : TilingNode()
 
     /**
-     * Splits the area horizontally: [leftNode] gets [ratio] of the width, [rightNode] gets the rest.
-     * [id] is auto-generated and used by [TilingLayout][it.stefanobusceti.tilinglayout.presentation.TilingLayout]
-     * to track runtime ratio overrides when the user drags the divider.
-     */
-    @OptIn(ExperimentalUuidApi::class)
-    data class HSplit(
-        val id: String = Uuid.random().toString(),
-        val leftNode: TilingNode,
-        val rightNode: TilingNode,
-        val ratio: Float = 0.5f
-    ) : TilingNode()
-
-    /**
-     * Splits the area vertically: [topNode] gets [ratio] of the height, [bottomNode] gets the rest.
-     * [id] is auto-generated and used by [TilingLayout][it.stefanobusceti.tilinglayout.presentation.TilingLayout]
-     * to track runtime ratio overrides when the user drags the divider.
-     */
-    @OptIn(ExperimentalUuidApi::class)
-    data class VSplit(
-        val id: String = Uuid.random().toString(),
-        val topNode: TilingNode,
-        val bottomNode: TilingNode,
-        val ratio: Float = 0.5f
-    ) : TilingNode()
-
-    /**
-     * Returns a new tree with the [Leaf] identified by [id] removed.
-     * When a split loses one child, it is replaced by the remaining child.
-     * Returns `null` if the tree reduces to nothing (i.e. this node itself is the target leaf).
-     */
-    fun removeLeaf(id: String): TilingNode =
-        when (this) {
-            is Leaf -> if (this.id == id) EmptyNode else this
-            is HSplit -> {
-                val newLeft = leftNode.removeLeaf(id)
-                val newRight = rightNode.removeLeaf(id)
-                when {
-                    newLeft is EmptyNode -> newRight
-                    newRight is EmptyNode -> newLeft
-                    else -> HSplit(this.id, newLeft, newRight, this.ratio)
-                }
-            }
-
-            is VSplit -> {
-                val newTop = topNode.removeLeaf(id)
-                val newBottom = bottomNode.removeLeaf(id)
-                when {
-                    newTop is EmptyNode -> newBottom
-                    newBottom is EmptyNode -> newTop
-                    else -> VSplit(this.id, newTop, newBottom, this.ratio)
-                }
-            }
-
-            EmptyNode -> this
-        }
-
-    /**
-     * Returns a new tree with the [Leaf] nodes identified by [srcId] and [destId] having their IDs exchanged.
-     * Split structure and ratios are preserved unchanged.
-     * If either ID is not found the tree is returned unmodified.
-     */
-    fun swapLeaves(srcId: String, destId: String): TilingNode =
-        when (this) {
-            is HSplit -> {
-                val newLeft = leftNode.swapLeaves(srcId, destId)
-                val newRight = rightNode.swapLeaves(srcId, destId)
-                HSplit(this.id, newLeft, newRight, ratio)
-            }
-
-            is Leaf -> when (this.id) {
-                srcId -> Leaf(destId)
-                destId -> Leaf(srcId)
-                else -> this
-            }
-
-            is VSplit -> {
-                val newTop = topNode.swapLeaves(srcId, destId)
-                val newBottom = bottomNode.swapLeaves(srcId, destId)
-                VSplit(this.id, newTop, newBottom, ratio)
-            }
-
-            EmptyNode -> this
-        }
-
-    /**
-     * Returns a new tree with a new [Leaf] identified by [id] inserted in the given [splitArea] direction.
+     * A terminal pane identified by [id].
      *
-     * If [leafDestId] is `null`, wraps the entire tree in a new split at the specified edge
-     * (e.g. [SplitArea.Right] produces `HSplit(leftNode = this, rightNode = Leaf(id))`).
-     * If [leafDestId] is provided, finds that specific leaf and replaces it with a split containing
-     * both the original leaf and the new one, arranged according to [splitArea].
+     * [id] must be unique within the tree; it is used to key leaf content in
+     * `movableContentOf` so that content survives structural tree changes.
      */
-    fun addLeaf(id: String, splitArea: SplitArea, leafDestId: String? = null): TilingNode {
-        if (leafDestId == null) {
-            return when (splitArea) {
-                SplitArea.Top -> VSplit(topNode = Leaf(id), bottomNode = this)
-                SplitArea.Bottom -> VSplit(topNode = this, bottomNode = Leaf(id))
-                SplitArea.Left -> HSplit(leftNode = Leaf(id), rightNode = this)
-                SplitArea.Right -> HSplit(leftNode = this, rightNode = Leaf(id))
-            }
-        }
-        return when (this) {
-            is HSplit -> {
-                val leftNode = leftNode.addLeaf(id, splitArea, leafDestId)
-                val rightNode = rightNode.addLeaf(id, splitArea, leafDestId)
-                HSplit(this.id, leftNode, rightNode)
-            }
+    data class Leaf(
+        val id: String,
+        override val ratio: Float = 0.5f
+    ) : TilingNode()
 
-            is Leaf -> when (this.id) {
-                leafDestId -> when (splitArea) {
-                    SplitArea.Top -> VSplit(
-                        topNode = Leaf(id),
-                        bottomNode = Leaf(leafDestId),
-                    )
-
-                    SplitArea.Bottom -> VSplit(
-                        topNode = Leaf(leafDestId),
-                        bottomNode = Leaf(id),
-                    )
-
-                    SplitArea.Left -> HSplit(
-                        leftNode = Leaf(id),
-                        rightNode = Leaf(leafDestId),
-                    )
-
-                    SplitArea.Right -> HSplit(
-                        leftNode = Leaf(leafDestId),
-                        rightNode = Leaf(id),
-                    )
-                }
-
-                else -> this
-            }
-
-            is VSplit -> {
-                val topNode = topNode.addLeaf(id, splitArea, leafDestId)
-                val bottomNode = bottomNode.addLeaf(id, splitArea, leafDestId)
-                VSplit(this.id, topNode, bottomNode)
-            }
-
-            EmptyNode -> this
-        }
-    }
+    /**
+     * An internal node that splits its available space among [children] along [splitDirection].
+     *
+     * [id] defaults to a random UUID and is used to key runtime state such as drag-overridden
+     * ratios and measured split sizes.
+     * [children] must contain at least 2 nodes; a split with fewer children is collapsed by
+     * tree operations such as [remove].
+     */
+    @OptIn(ExperimentalUuidApi::class)
+    data class Split(
+        val id: String = Uuid.random().toString(),
+        val children: List<TilingNode>,
+        val splitDirection: SplitDirection,
+        override val ratio: Float = 0.5f,
+    ) : TilingNode()
 }
 
-fun TilingNode.leafIds(): List<String> = when (this) {
-    is TilingNode.Leaf -> listOf(id)
-    is TilingNode.HSplit -> leftNode.leafIds() + rightNode.leafIds()
-    is TilingNode.VSplit -> topNode.leafIds() + bottomNode.leafIds()
-    TilingNode.EmptyNode -> emptyList()
+/** Axis along which a [TilingNode.Split] divides its available space. */
+enum class SplitDirection {
+    /** Children are stacked top-to-bottom; each child fills the full width. */
+    Vertical,
+
+    /** Children are placed left-to-right; each child fills the full height. */
+    Horizontal,
 }

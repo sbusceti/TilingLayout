@@ -4,5 +4,5 @@ import it.stefanobusceti.tilinglayout.domain.TilingNode
 
 data class DashboardScreenState(
     val isLoading: Boolean = false,
-    val node: TilingNode = TilingNode.EmptyNode
+    val node: TilingNode = TilingNode.EmptyNode()
 )

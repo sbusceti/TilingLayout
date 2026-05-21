@@ -9,6 +9,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runComposeUiTest
 import it.stefanobusceti.tilinglayout.domain.TilingNode
+import it.stefanobusceti.tilinglayout.domain.remove
 import it.stefanobusceti.tilinglayout.presentation.TilingLayout
 import kotlin.test.Test
 
@@ -40,7 +41,7 @@ class TilingLayoutUiTest {
                 Text(id)
             }
         }
-        node = node.removeLeaf("Win-1")
+        node = node.remove("Win-1")
 
         onNodeWithText("Win-1").assertDoesNotExist()
     }

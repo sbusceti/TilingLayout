@@ -1,7 +1,7 @@
 package it.stefanobusceti.tilinglayout.presentation
 
 import androidx.lifecycle.ViewModel
-import it.stefanobusceti.tilinglayout.domain.TilingNode
+import it.stefanobusceti.tilinglayout.domain.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -9,12 +9,19 @@ import kotlinx.coroutines.flow.update
 class DashboardViewModel : ViewModel() {
     private var _state = MutableStateFlow(
         DashboardScreenState(
-            node = TilingNode.HSplit(
-                leftNode = TilingNode.Leaf("1"),
-                rightNode = TilingNode.VSplit(
-                    topNode = TilingNode.Leaf("2"),
-                    bottomNode = TilingNode.Leaf("3"),
-                )
+            node = TilingNode.Split(
+                splitDirection = SplitDirection.Horizontal,
+                children = listOf(
+                    TilingNode.Leaf("1"),
+                    TilingNode.Split(
+                        splitDirection = SplitDirection.Vertical,
+                        children = listOf(
+                            TilingNode.Leaf("2"),
+                            TilingNode.Leaf("3"),
+                            TilingNode.Leaf("4"),
+                        )
+                    )
+                ),
             )
         )
     )
@@ -22,9 +29,24 @@ class DashboardViewModel : ViewModel() {
 
     fun onAction(action: DashboardScreenAction) {
         when (action) {
-            is DashboardScreenAction.AddWidget -> {}
+            is DashboardScreenAction.AddWidget -> {
+                _state.update {
+                    it.copy(
+                        node = state.value.node.add(
+                            id = action.widgetId,
+                            targetNodeId = action.targetId,
+                            splitArea = action.splitArea
+                        )
+                    )
+                }
+            }
+
             is DashboardScreenAction.RemoveWidget -> {
-                _state.update { it.copy(node = state.value.node.removeLeaf(action.widgetId)) }
+                _state.update { it.copy(node = state.value.node.remove(action.widgetId)) }
+            }
+
+            is DashboardScreenAction.UpdateRatios -> {
+                _state.update { it.copy(node = state.value.node.updateRatios(action.ratios)) }
             }
         }
     }
