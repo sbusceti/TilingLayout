@@ -51,21 +51,24 @@ fun TilingLayout(
 ) {
 
     val ratios = remember { mutableStateMapOf<String, List<Float>>() }
-    val leafs = remember { mutableMapOf<String, @Composable () -> Unit>() }
+    val leafs = remember { mutableStateMapOf<String, @Composable () -> Unit>() }
     val splitSizes = remember { mutableStateMapOf<String, Int>() }
 
     LaunchedEffect(node) {
-        ratios.keys.retainAll(node.collectSplitIds())
-        splitSizes.keys.retainAll(node.collectSplitIds())
+        val splitIds = node.collectSplitIds()
+        ratios.keys.retainAll(splitIds)
+        splitSizes.keys.retainAll(splitIds)
+        leafs.keys.retainAll(node.leavesId().toSet())
     }
 
-    println("initial ratio: $node")
-
-    leafs.keys.retainAll(node.leavesId().toSet())
 
     node.leavesId().forEach { id ->
-        if (id !in leafs) {
-            leafs[id] = movableContentOf { leafContent(id) }
+        key(id) {
+            if (id !in leafs) {
+                leafs[id] = movableContentOf {
+                    leafContent(id)
+                }
+            }
         }
     }
 
@@ -316,7 +319,7 @@ private fun Gap(
                         detectDragGestures(
                             onDrag = { change, dragAmount ->
                                 change.consume()
-                                onRatioChanged(dragAmount.x / sizeProvider())
+                                currentOnRatioChanged(dragAmount.x / sizeProvider())
                             },
                             onDragEnd = onDragEnd,
                         )

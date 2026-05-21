@@ -2,6 +2,8 @@
 
 A **Compose Multiplatform** layout that arranges content as a tree of recursive horizontal and vertical splits — like a tiling window manager, but for Compose UI.
 
+Designed primarily for **desktop applications** that need a user-customisable dashboard (think IDE panels, analytics dashboards, or any multi-pane workspace), but it runs on every platform Compose Multiplatform supports.
+
 ![Demo](tiling_layout.gif)
 
 ---
@@ -10,9 +12,9 @@ A **Compose Multiplatform** layout that arranges content as a tree of recursive 
 
 | Platform | Target |
 |---|---|
+| JVM / Desktop | Compose for Desktop — primary target |
 | Android | minSdk 24 |
 | iOS | iosX64 · iosArm64 · iosSimulatorArm64 |
-| JVM / Desktop | Compose for Desktop |
 | JS | Kotlin/JS (browser) |
 | WasmJS | Kotlin/Wasm (browser) |
 
@@ -45,42 +47,28 @@ commonMain.dependencies {
 
 ## Quick start
 
-### DSL overload — static layouts
-
-Use the builder DSL when the pane structure is fixed at composition time:
+Pass a `TilingNode` tree and a lambda that renders each leaf pane:
 
 ```kotlin
-TilingLayout {
-    hSplit {
-        leaf { LeftPane() }
-        vSplit {
-            leaf { TopRightPane() }
-            leaf { BottomRightPane() }
-        }
-    }
+var node by remember {
+    mutableStateOf<TilingNode>(
+        TilingNode.Split(
+            splitDirection = SplitDirection.Horizontal,
+            children = listOf(
+                TilingNode.Leaf("editor"),
+                TilingNode.Leaf("preview"),
+            )
+        )
+    )
 }
-```
 
-Each `hSplit` / `vSplit` requires **exactly 2 children**. The optional `ratio` parameter controls the initial size of the first child (default `0.5f`):
-
-```kotlin
-hSplit(ratio = 0.3f) {
-    leaf { NarrowSidebar() }
-    leaf { WideContent() }
-}
-```
-
-### Node overload — dynamic layouts
-
-For layouts driven by runtime state (adding, removing, or rearranging panes), pass a `TilingNode` tree directly and handle mutations yourself:
-
-```kotlin
-var node by remember { mutableStateOf<TilingNode>(TilingNode.Leaf("main")) }
-
-TilingLayout(node = node) { id ->
+TilingLayout(
+    node = node,
+    onRatiosChanged = { ratios -> node = node.updateRatios(ratios) },
+) { id ->
     Pane(
         title = id,
-        onClose = { node = node.removeLeaf(id) },
+        onClose = { node = node.remove(id) },
     )
 }
 ```
@@ -89,42 +77,45 @@ TilingLayout(node = node) { id ->
 
 ## TilingNode tree
 
-`TilingNode` is an **immutable sealed class** that describes the pane layout as a binary tree.
+`TilingNode` is an **immutable sealed class** that describes the pane layout as a tree.
 
 | Node | Description |
 |---|---|
-| `Leaf(id)` | A terminal pane. `id` links it to its composable content. |
-| `HSplit(leftNode, rightNode, ratio)` | Two panes side by side. `ratio` is the left pane's fraction of the total width. |
-| `VSplit(topNode, bottomNode, ratio)` | Two panes stacked. `ratio` is the top pane's fraction of the total height. |
+| `Leaf(id, ratio)` | A terminal pane. `id` links it to its composable content. |
+| `Split(children, splitDirection, ratio)` | An internal node that divides space among 2 or more children. `splitDirection` is `Horizontal` (left-to-right) or `Vertical` (top-to-bottom). |
 | `EmptyNode` | An empty layout — useful as the initial state before any pane is added. |
+
+`ratio` on each node is its relative weight within its parent `Split`; siblings are normalised at layout time so absolute values are arbitrary.
 
 ### Tree operations
 
 All operations return a **new tree**; the original is never mutated.
 
 ```kotlin
-// Remove a pane — its sibling takes the freed space
-node = node.removeLeaf(id)
-
-// Add a pane adjacent to an existing one
-node = node.addLeaf(
-    id = "new-pane",
-    splitArea = SplitArea.Right,  // Top | Bottom | Left | Right
-    leafDestId = "existing-pane", // null = wrap the whole tree
+// Add a new pane adjacent to an existing leaf
+node = node.add(
+    id = "terminal",
+    targetNodeId = "editor",   // ID of the leaf to split
+    splitArea = SplitArea.Bottom,  // Top | Bottom | Left | Right
 )
 
-// Swap the positions of two panes (structure and ratios unchanged)
-node = node.swapLeaves(srcId, destId)
+// Remove a pane — its sibling absorbs the freed space
+node = node.remove("terminal")
 
-// Collect all leaf IDs in depth-first order
-val ids: List<String> = node.leafIds()
+// Apply user-dragged ratios back into the tree
+node = node.updateRatios(ratios)
+
+// Collect all leaf IDs
+val ids: Set<String> = node.leavesId()
 ```
 
 ---
 
 ## Draggable dividers
 
-Every split renders a draggable Material3 divider between its two children. Dragging it updates the split ratio at runtime **without modifying the `TilingNode` tree** — the overridden ratios are kept in internal state and tied to each split's auto-generated `id`.
+A draggable Material3 divider is rendered between each pair of adjacent panes. Dragging it updates the split ratio at runtime **without modifying the `TilingNode` tree** — overridden ratios are stored in internal `remember` state, keyed by each `Split`'s auto-generated `id`.
+
+When the user finishes dragging, the `onRatiosChanged` callback fires with the full updated ratio map (`Map<String, List<Float>>`, keyed by `Split.id`). Call `node.updateRatios(ratios)` to write the new ratios back into the canonical tree.
 
 Divider appearance is controlled via `GapDefaults`:
 
@@ -133,8 +124,9 @@ TilingLayout(
     node = node,
     gap = GapDefaults(
         thickness = 8.dp,
-        color = Color.Transparent, // invisible by default
+        color = Color.Transparent,
     ),
+    onRatiosChanged = { ratios -> node = node.updateRatios(ratios) },
 ) { id -> /* ... */ }
 ```
 
@@ -142,65 +134,85 @@ The cursor changes to a resize icon on hover (desktop and web targets).
 
 ---
 
-## Example: ViewModel-driven layout (MVI)
+## Persisting the layout
 
-Define your state, actions, and ViewModel following the MVI pattern:
+Because `TilingNode` is a plain data class hierarchy, the full layout — structure and pane sizes — can be serialised to disk (e.g. JSON or DataStore) and restored on the next app launch:
+
+```kotlin
+// After a drag ends, persist the updated tree
+onRatiosChanged = { ratios ->
+    val updatedNode = node.updateRatios(ratios)
+    node = updatedNode
+    saveLayoutToDisk(updatedNode)   // serialise to JSON / DataStore / etc.
+}
+
+// On startup, reload the saved tree instead of the default
+node = loadLayoutFromDisk() ?: defaultNode
+```
+
+---
+
+## Example: ViewModel-driven layout (MVI)
 
 ```kotlin
 // State
-data class LayoutState(
-    val node: TilingNode = TilingNode.EmptyNode,
+data class DashboardState(
+    val node: TilingNode = TilingNode.EmptyNode(),
 )
 
 // Actions
-sealed interface LayoutAction {
-    data class RemovePane(val paneId: String) : LayoutAction
-    data class AddPane(val paneId: String, val area: SplitArea, val targetId: String) : LayoutAction
+sealed interface DashboardAction {
+    data class AddPane(val id: String, val targetId: String, val area: SplitArea) : DashboardAction
+    data class RemovePane(val id: String) : DashboardAction
+    data class UpdateRatios(val ratios: Map<String, List<Float>>) : DashboardAction
 }
 
 // ViewModel
-class LayoutViewModel : ViewModel() {
+class DashboardViewModel : ViewModel() {
     private val _state = MutableStateFlow(
-        LayoutState(
-            node = TilingNode.HSplit(
-                leftNode = TilingNode.Leaf("editor"),
-                rightNode = TilingNode.Leaf("preview"),
+        DashboardState(
+            node = TilingNode.Split(
+                splitDirection = SplitDirection.Horizontal,
+                children = listOf(
+                    TilingNode.Leaf("sidebar"),
+                    TilingNode.Leaf("main"),
+                )
             )
         )
     )
     val state = _state.asStateFlow()
 
-    fun onAction(action: LayoutAction) {
-        when (action) {
-            is LayoutAction.RemovePane -> {
-                _state.update { it.copy(node = it.node.removeLeaf(action.paneId)) }
-            }
-            is LayoutAction.AddPane -> {
-                _state.update { it.copy(node = it.node.addLeaf(action.paneId, action.area, action.targetId)) }
-            }
+    fun onAction(action: DashboardAction) {
+        _state.update {
+            it.copy(
+                node = when (action) {
+                    is DashboardAction.AddPane ->
+                        it.node.add(action.id, action.targetId, action.area)
+                    is DashboardAction.RemovePane ->
+                        it.node.remove(action.id)
+                    is DashboardAction.UpdateRatios ->
+                        it.node.updateRatios(action.ratios)
+                }
+            )
         }
     }
 }
 ```
 
-Wire the ViewModel to your composable:
+Wire it to your composable:
 
 ```kotlin
 @Composable
-fun LayoutScreen(viewModel: LayoutViewModel = koinViewModel()) {
+fun DashboardScreen(viewModel: DashboardViewModel = koinViewModel()) {
     val state by viewModel.state.collectAsState()
-    LayoutScreenContent(state = state, onAction = viewModel::onAction)
-}
-
-@Composable
-fun LayoutScreenContent(
-    state: LayoutState,
-    onAction: (LayoutAction) -> Unit,
-) {
-    TilingLayout(node = state.node) { id ->
+    TilingLayout(
+        node = state.node,
+        onRatiosChanged = { viewModel.onAction(DashboardAction.UpdateRatios(it)) },
+    ) { id ->
         Pane(
-            onClose = { onAction(LayoutAction.RemovePane(id)) },
-            onSplit = { area, newId -> onAction(LayoutAction.AddPane(newId, area, id)) },
+            title = id,
+            onClose = { viewModel.onAction(DashboardAction.RemovePane(id)) },
+            onSplit = { area -> viewModel.onAction(DashboardAction.AddPane("pane-${uuid()}", id, area)) },
         )
     }
 }

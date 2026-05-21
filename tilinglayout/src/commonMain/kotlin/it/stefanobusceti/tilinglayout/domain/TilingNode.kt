@@ -55,6 +55,7 @@ sealed class TilingNode {
 enum class SplitDirection {
     /** Children are stacked top-to-bottom; each child fills the full width. */
     Vertical,
+
     /** Children are placed left-to-right; each child fills the full height. */
     Horizontal,
 }
