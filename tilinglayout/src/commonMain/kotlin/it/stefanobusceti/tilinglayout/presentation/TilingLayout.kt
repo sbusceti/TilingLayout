@@ -11,13 +11,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.*
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import it.stefanobusceti.tilinglayout.domain.SplitDirection
 import it.stefanobusceti.tilinglayout.domain.TilingNode
-import it.stefanobusceti.tilinglayout.domain.leafIds
+import it.stefanobusceti.tilinglayout.domain.collectSplitIds
+import it.stefanobusceti.tilinglayout.domain.leavesId
 import kotlin.math.roundToInt
 
 private const val GAP_ID = "gap"
@@ -41,17 +46,29 @@ fun TilingLayout(
     node: TilingNode,
     modifier: Modifier = Modifier.fillMaxSize(),
     gap: GapDefaults = GapDefaults(),
+    onRatiosChanged: (Map<String, List<Float>>) -> Unit = {},
     leafContent: @Composable (id: String) -> Unit,
 ) {
 
-    val ratios = remember { mutableStateMapOf<String, Float>() }
-    val leafs = remember { mutableMapOf<String, @Composable () -> Unit>() }
+    val ratios = remember { mutableStateMapOf<String, List<Float>>() }
+    val leafs = remember { mutableStateMapOf<String, @Composable () -> Unit>() }
+    val splitSizes = remember { mutableStateMapOf<String, Int>() }
 
-    leafs.keys.retainAll(node.leafIds().toSet())
+    LaunchedEffect(node) {
+        val splitIds = node.collectSplitIds()
+        ratios.keys.retainAll(splitIds)
+        splitSizes.keys.retainAll(splitIds)
+        leafs.keys.retainAll(node.leavesId().toSet())
+    }
 
-    node.leafIds().forEach { id ->
-        if (id !in leafs) {
-            leafs[id] = movableContentOf { leafContent(id) }
+
+    node.leavesId().forEach { id ->
+        key(id) {
+            if (id !in leafs) {
+                leafs[id] = movableContentOf {
+                    leafContent(id)
+                }
+            }
         }
     }
 
@@ -59,40 +76,41 @@ fun TilingLayout(
     @Composable
     fun Node(node: TilingNode) {
         when (node) {
-            is TilingNode.HSplit -> {
-                Node(node.leftNode)
-                Gap(
-                    color = gap.color,
-                    gapType = GapType.VERTICAL,
-                    currentRatio = { ratios[node.id] ?: node.ratio },
-                    onRatioChanged = { newRatio ->
-                        ratios[node.id] = newRatio
-                    },
-                    gapThickness = gap.thickness,
-                    nodeId = node.id
-                )
-                Node(node.rightNode)
-            }
-
             is TilingNode.Leaf -> {
                 leafs[node.id]?.invoke()
             }
 
-            is TilingNode.VSplit -> {
-                Node(node.topNode)
-                Gap(
-                    color = gap.color,
-                    gapType = GapType.HORIZONTAL,
-                    currentRatio = { ratios[node.id] ?: node.ratio },
-                    onRatioChanged = { newRatio -> ratios[node.id] = newRatio },
-                    gapThickness = gap.thickness,
-                    nodeId = node.id
-                )
-                Node(node.bottomNode)
+            is TilingNode.EmptyNode -> {
+                // no-op
             }
 
-            TilingNode.EmptyNode -> {
-                // no-op
+            is TilingNode.Split -> {
+                node.children.forEachIndexed { index, child ->
+                    Node(child)
+                    if (index < node.children.size - 1) {
+                        Gap(
+                            nodeId = node.id,
+                            gapType = when (node.splitDirection) {
+                                SplitDirection.Horizontal -> GapType.VERTICAL
+                                SplitDirection.Vertical -> GapType.HORIZONTAL
+                            },
+                            onRatioChanged = { delta ->
+                                val currentRatios = ratios[node.id]
+                                    ?.takeIf { it.size == node.children.size }
+                                    ?: node.children.map { it.ratio }
+                                val newRatios = currentRatios.toMutableList()
+                                newRatios[index] = (newRatios[index] + delta).coerceAtLeast(0.05f)
+                                newRatios[index + 1] = (newRatios[index + 1] - delta).coerceAtLeast(0.05f)
+                                ratios[node.id] = newRatios
+                            },
+                            gapThickness = gap.thickness,
+                            sizeProvider = { splitSizes[node.id] ?: 1 },
+                            onDragEnd = {
+                                onRatiosChanged(ratios)
+                            }
+                        )
+                    }
+                }
             }
         }
     }
@@ -104,7 +122,15 @@ fun TilingLayout(
     ) { measurables, constraints ->
         val leavesQueue = ArrayDeque(measurables.filter { it.layoutId != GAP_ID })
         val gapsQueue = ArrayDeque(measurables.filter { it.layoutId == GAP_ID })
-        val placeableList = measureLeaf(node, constraints, leavesQueue, gapsQueue, gapThicknessPx, ratios)
+        val placeableList = measureLeaf(
+            node = node,
+            constraints = constraints,
+            leaves = leavesQueue,
+            gaps = gapsQueue,
+            gapThicknessPx = gapThicknessPx,
+            ratios = ratios,
+            splitSizes = splitSizes
+        )
         layout(constraints.maxWidth, constraints.maxHeight) {
             placeableList.forEach { node ->
                 node.placeable.placeRelative(node.offset.x, node.offset.y)
@@ -120,8 +146,8 @@ fun TilingLayout(
  * exactly one entry per [TilingNode.Leaf] and per split node respectively.
  * Gap space ([gapThicknessPx]) is subtracted from the available area before distributing
  * the remainder according to each split's ratio.
- * [ratios] overrides the static ratio declared in each split node with the value dragged by the user;
- * falls back to [TilingNode.HSplit.ratio] / [TilingNode.VSplit.ratio] when no override exists.
+ * [ratios] overrides the static ratio declared in each [TilingNode.Split]'s children with the
+ * user-dragged values; falls back to each child's [TilingNode.ratio] when no override exists.
  * Returns a flat list of (Placeable, offset) pairs ready to be placed by the parent layout.
  */
 private fun measureLeaf(
@@ -130,82 +156,87 @@ private fun measureLeaf(
     leaves: ArrayDeque<Measurable>,
     gaps: ArrayDeque<Measurable>,
     gapThicknessPx: Int,
-    ratios: Map<String, Float>
+    ratios: Map<String, List<Float>>,
+    offsetX: Int = 0,
+    offsetY: Int = 0,
+    splitSizes: MutableMap<String, Int>
 ): List<PlacedNode> {
     val maxWidth = constraints.maxWidth
     val maxHeight = constraints.maxHeight
 
     when (node) {
-        is TilingNode.HSplit -> {
-            val currentRatio = ratios[node.id] ?: node.ratio
-            val maxLeftWidth = (currentRatio * (maxWidth - gapThicknessPx)).roundToInt()
-            val maxRightWidth = maxWidth - maxLeftWidth - gapThicknessPx
-            val leftConstraints = Constraints(
-                minWidth = 0,
-                minHeight = 0,
-                maxWidth = maxLeftWidth,
-                maxHeight = constraints.maxHeight
-            )
-            val rightConstraints = leftConstraints.copy(maxWidth = maxRightWidth)
-            val leftNode = measureLeaf(node.leftNode, leftConstraints, leaves, gaps, gapThicknessPx, ratios)
-            val gap = measureGap(
-                gapType = GapType.VERTICAL,
-                gaps.removeFirst(),
-                constraints,
-                IntOffset(x = maxLeftWidth, y = 0),
-                gapThicknessPx
-            )
-            val rightNode = measureLeaf(node.rightNode, rightConstraints, leaves, gaps, gapThicknessPx, ratios)
-            val leftOffset = IntOffset(x = 0, y = 0)
-            val rightOffset = IntOffset(x = maxLeftWidth + gapThicknessPx, y = 0)
-            val translatedLeft = leftNode.map { node ->
-                PlacedNode(node.placeable, node.offset + leftOffset)
-            }
-            val translatedRight = rightNode.map { node ->
-                PlacedNode(node.placeable, node.offset + rightOffset)
-            }
-            return translatedLeft + listOf(gap) + translatedRight
-        }
-
-        is TilingNode.VSplit -> {
-            val currentRatio = ratios[node.id] ?: node.ratio
-            val maxTopHeight = (currentRatio * (maxHeight - gapThicknessPx)).roundToInt()
-            val maxBottomHeight = maxHeight - maxTopHeight - gapThicknessPx
-            val topConstraints = Constraints(
-                minWidth = 0,
-                minHeight = 0,
-                maxWidth = constraints.maxWidth,
-                maxHeight = maxTopHeight
-            )
-            val bottomConstraints = topConstraints.copy(maxHeight = maxBottomHeight)
-            val topNode = measureLeaf(node.topNode, topConstraints, leaves, gaps, gapThicknessPx, ratios)
-            val gap = measureGap(
-                gapType = GapType.HORIZONTAL,
-                gaps.removeFirst(),
-                constraints,
-                IntOffset(x = 0, y = maxTopHeight),
-                gapThicknessPx
-            )
-            val bottomNode = measureLeaf(node.bottomNode, bottomConstraints, leaves, gaps, gapThicknessPx, ratios)
-            val topOffset = IntOffset(x = 0, y = 0)
-            val bottomOffset = IntOffset(x = 0, y = maxTopHeight + gapThicknessPx)
-            val translatedTop = topNode.map { node ->
-                PlacedNode(node.placeable, node.offset + topOffset)
-            }
-            val translatedBottom = bottomNode.map { node ->
-                PlacedNode(node.placeable, node.offset + bottomOffset)
-            }
-            return translatedTop + listOf(gap) + translatedBottom
-        }
-
         is TilingNode.Leaf -> {
             val measurable = leaves.removeFirst()
             val placeable = measurable.measure(constraints)
-            return listOf(PlacedNode(placeable, IntOffset(0, 0)))
+            return listOf(PlacedNode(placeable, IntOffset(offsetX, offsetY)))
         }
 
-        TilingNode.EmptyNode -> {
+        is TilingNode.EmptyNode -> {
             return emptyList()
+        }
+
+        is TilingNode.Split -> {
+            val isHorizontal = node.splitDirection == SplitDirection.Horizontal
+            splitSizes[node.id] = if (isHorizontal) maxWidth else maxHeight
+            val availableSpace = if (isHorizontal) {
+                maxWidth - gapThicknessPx * (node.children.count() - 1)
+            } else {
+                maxHeight - gapThicknessPx * (node.children.count() - 1)
+            }
+
+            val placedNodes = mutableListOf<PlacedNode>()
+            var currentOffset = if (isHorizontal) offsetX else offsetY
+            val currentRatios = ratios[node.id]
+                ?.takeIf { it.size == node.children.size }
+                ?: node.children.map { it.ratio }
+
+            val ratioSum = currentRatios.sum()
+            val normalizedRatios = currentRatios.map { it / ratioSum }
+
+            node.children.forEachIndexed { index, childNode ->
+                val childSize = (availableSpace * normalizedRatios[index]).roundToInt()
+                val childConstraints = if (isHorizontal) {
+                    Constraints(minWidth = 0, minHeight = 0, maxWidth = childSize, maxHeight = maxHeight)
+                } else {
+                    Constraints(minWidth = 0, minHeight = 0, maxWidth = maxWidth, maxHeight = childSize)
+                }
+                val nodes = measureLeaf(
+                    node = childNode,
+                    constraints = childConstraints,
+                    leaves = leaves,
+                    gaps = gaps,
+                    gapThicknessPx = gapThicknessPx,
+                    ratios = ratios,
+                    offsetX = if (isHorizontal) currentOffset else offsetX,
+                    offsetY = if (isHorizontal) offsetY else currentOffset,
+                    splitSizes = splitSizes
+                )
+                placedNodes.addAll(nodes)
+                if (index < node.children.count() - 1) {
+                    currentOffset += childSize
+                    val gapOffset = if (isHorizontal) {
+                        IntOffset(currentOffset, offsetY)
+                    } else {
+                        IntOffset(offsetX, currentOffset)
+                    }
+                    placedNodes.add(
+                        measureGap(
+                            gapType = if (isHorizontal) GapType.VERTICAL else GapType.HORIZONTAL,
+                            measurable = gaps.removeFirst(),
+                            constraints = Constraints(
+                                minWidth = 0,
+                                minHeight = 0,
+                                maxWidth = if (isHorizontal) gapThicknessPx else maxWidth,
+                                maxHeight = if (isHorizontal) maxHeight else gapThicknessPx
+                            ),
+                            gapThicknessPx = gapThicknessPx,
+                            offset = gapOffset,
+                        )
+                    )
+                    currentOffset += gapThicknessPx
+                }
+            }
+            return placedNodes
         }
     }
 }
@@ -217,9 +248,9 @@ private fun measureGap(
     constraints: Constraints,
     offset: IntOffset,
     gapThicknessPx: Int,
-): PlacedNode = when (gapType) {
-    GapType.HORIZONTAL -> {
-        val placeable = measurable.measure(
+): PlacedNode {
+    val placeable = when (gapType) {
+        GapType.HORIZONTAL -> measurable.measure(
             Constraints(
                 minWidth = 0,
                 minHeight = gapThicknessPx,
@@ -227,20 +258,17 @@ private fun measureGap(
                 maxHeight = gapThicknessPx
             )
         )
-        PlacedNode(placeable, offset)
-    }
 
-    GapType.VERTICAL -> {
-        val placeable = measurable.measure(
+        GapType.VERTICAL -> measurable.measure(
             Constraints(
                 minWidth = gapThicknessPx,
-                maxWidth = gapThicknessPx,
                 minHeight = 0,
+                maxWidth = gapThicknessPx,
                 maxHeight = constraints.maxHeight
             )
         )
-        PlacedNode(placeable, offset)
     }
+    return PlacedNode(placeable, offset)
 }
 
 /**
@@ -252,79 +280,52 @@ private fun measureGap(
 private fun Gap(
     nodeId: String,
     gapType: GapType,
-    currentRatio: () -> Float,
     color: Color = Color.Transparent,
     onRatioChanged: (Float) -> Unit,
-    gapThickness: Dp
+    gapThickness: Dp,
+    sizeProvider: () -> Int,
+    onDragEnd: () -> Unit,
 ) {
+    val currentOnRatioChanged by rememberUpdatedState(onRatioChanged)
+
     val modifier = Modifier.layoutId(GAP_ID)
     when (gapType) {
         GapType.HORIZONTAL -> {
-            var totalHeight by remember { mutableStateOf(0) }
             HorizontalDivider(
                 thickness = gapThickness,
                 color = color,
-                modifier = modifier.fillMaxWidth().onGloballyPositioned {
-                    totalHeight = it.parentLayoutCoordinates?.size?.height ?: 0
-                }.pointerHoverIcon(
-                    icon = horizontalResizeCursor
-                ).pointerInput(nodeId) {
-                    detectDragGestures(
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            val newRatio = (currentRatio() + dragAmount.y / totalHeight).coerceIn(0.1f, 0.9f)
-                            onRatioChanged(newRatio)
-                        })
-                })
+                modifier = modifier.fillMaxWidth()
+                    .pointerHoverIcon(
+                        icon = horizontalResizeCursor
+                    ).pointerInput(nodeId) {
+                        detectDragGestures(
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                currentOnRatioChanged(dragAmount.y / sizeProvider())
+                            },
+                            onDragEnd = onDragEnd,
+                        )
+                    })
         }
 
         GapType.VERTICAL -> {
-            var totalWidth by remember { mutableStateOf(0) }
             VerticalDivider(
                 thickness = gapThickness,
                 color = color,
-                modifier = modifier.fillMaxHeight().onGloballyPositioned {
-                    totalWidth = it.parentLayoutCoordinates?.size?.width ?: 0
-                }.pointerHoverIcon(
-                    icon = verticalResizeCursor
-                ).pointerInput(nodeId) {
-                    detectDragGestures(
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            val newRatio = (currentRatio() + dragAmount.x / totalWidth).coerceIn(0.1f, 0.9f)
-                            onRatioChanged(newRatio)
-                        })
-                })
+                modifier = modifier.fillMaxHeight()
+                    .pointerHoverIcon(
+                        icon = verticalResizeCursor
+                    ).pointerInput(nodeId) {
+                        detectDragGestures(
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                currentOnRatioChanged(dragAmount.x / sizeProvider())
+                            },
+                            onDragEnd = onDragEnd,
+                        )
+                    })
         }
     }
-}
-
-/**
- * DSL-style overload of [TilingLayout] for statically-defined layouts.
- *
- * Use this overload when the pane structure is fixed at build time and you don't need
- * to mutate the tree at runtime. For dynamic layouts driven by external state, prefer
- * the `TilingLayout(node, leafContent)` overload, which lets you manage the [TilingNode]
- * tree yourself (add/remove/swap leaves, persist ratios, etc.).
- *
- * The [content] lambda is re-executed on every recomposition; leaf identity is based on
- * insertion order, so reordering leaves causes their content to be remapped accordingly.
- */
-@Composable
-fun TilingLayout(
-    modifier: Modifier = Modifier.fillMaxSize(),
-    gap: GapDefaults = GapDefaults(),
-    content: TilingLayoutScope.() -> Unit,
-) {
-    val scope = remember { TilingLayoutScopeImpl() }
-    scope.content()
-
-    TilingLayout(
-        node = scope.buildNode(),
-        modifier = modifier,
-        gap = gap,
-        leafContent = { id -> scope.getLeafContent(id)?.invoke() }
-    )
 }
 
 /** Direction of the divider between two adjacent panes. */
