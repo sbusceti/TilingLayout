@@ -211,8 +211,7 @@ fun DashboardScreen(viewModel: DashboardViewModel = koinViewModel()) {
     ) { id ->
         Pane(
             title = id,
-            onClose = { viewModel.onAction(DashboardAction.RemovePane(id)) },
-            onSplit = { area -> viewModel.onAction(DashboardAction.AddPane("pane-${uuid()}", id, area)) },
+            onClose = { viewModel.onAction(DashboardAction.RemovePane(id)) }
         )
     }
 }
