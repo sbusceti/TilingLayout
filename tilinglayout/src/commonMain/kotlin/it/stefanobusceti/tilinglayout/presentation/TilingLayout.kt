@@ -328,34 +328,6 @@ private fun Gap(
     }
 }
 
-/**
- * DSL-style overload of [TilingLayout] for statically-defined layouts.
- *
- * Use this overload when the pane structure is fixed at build time and you don't need
- * to mutate the tree at runtime. For dynamic layouts driven by external state, prefer
- * the `TilingLayout(node, leafContent)` overload, which lets you manage the [TilingNode]
- * tree yourself (add/remove/swap leaves, persist ratios, etc.).
- *
- * The [content] lambda is re-executed on every recomposition; leaf identity is based on
- * insertion order, so reordering leaves causes their content to be remapped accordingly.
- */
-@Composable
-fun TilingLayout(
-    modifier: Modifier = Modifier.fillMaxSize(),
-    gap: GapDefaults = GapDefaults(),
-    content: TilingLayoutScope.() -> Unit,
-) {
-    val scope = remember { TilingLayoutScopeImpl() }
-    scope.content()
-
-    TilingLayout(
-        node = scope.buildNode(),
-        modifier = modifier,
-        gap = gap,
-        leafContent = { id -> scope.getLeafContent(id)?.invoke() }
-    )
-}
-
 /** Direction of the divider between two adjacent panes. */
 private enum class GapType {
     HORIZONTAL, VERTICAL
