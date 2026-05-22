@@ -93,16 +93,22 @@ fun TilingNode.remove(id: String): TilingNode = when (this) {
     }
 }
 
-fun TilingNode.swapLeaves(srcId: String, dstId: String): TilingNode = when (this) {
-    is TilingNode.EmptyNode -> this
-    is TilingNode.Leaf -> when {
-        id == dstId -> copy(id = srcId)
-        id == srcId -> copy(id = dstId)
-        else -> this
-    }
+fun TilingNode.swapLeaves(srcId: String, dstId: String): TilingNode {
+    if (srcId == dstId) return this
+    if (srcId.isBlank() || dstId.isBlank()) return this
 
-    is TilingNode.Split -> copy(children = children.map { it.swapLeaves(srcId, dstId) })
+    return when (this) {
+        is TilingNode.EmptyNode -> this
+        is TilingNode.Leaf -> when {
+            id == dstId -> copy(id = srcId)
+            id == srcId -> copy(id = dstId)
+            else -> this
+        }
+
+        is TilingNode.Split -> copy(children = children.map { it.swapLeaves(srcId, dstId) })
+    }
 }
+
 
 /**
  * Returns a new tree with each [TilingNode.Split]'s child ratios replaced by values from [ratios].
