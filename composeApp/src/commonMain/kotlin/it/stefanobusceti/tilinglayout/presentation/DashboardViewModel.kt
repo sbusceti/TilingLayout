@@ -48,6 +48,10 @@ class DashboardViewModel : ViewModel() {
             is DashboardScreenAction.UpdateRatios -> {
                 _state.update { it.copy(node = state.value.node.updateRatios(action.ratios)) }
             }
+
+            is DashboardScreenAction.SwapLeaves -> {
+                _state.update { it.copy(node = state.value.node.swapLeaves(action.srcId, action.destId)) }
+            }
         }
     }
 }
