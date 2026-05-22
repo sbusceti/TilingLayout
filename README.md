@@ -4,7 +4,7 @@ A **Compose Multiplatform** layout that arranges content as a tree of recursive 
 
 Designed primarily for **desktop applications** that need a user-customisable dashboard (think IDE panels, analytics dashboards, or any multi-pane workspace), but it runs on every platform Compose Multiplatform supports.
 
-![Demo](tiling_layout.mp4)
+![Demo](tiling_layout.gif)
 
 ---
 
