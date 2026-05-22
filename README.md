@@ -4,7 +4,7 @@ A **Compose Multiplatform** layout that arranges content as a tree of recursive 
 
 Designed primarily for **desktop applications** that need a user-customisable dashboard (think IDE panels, analytics dashboards, or any multi-pane workspace), but it runs on every platform Compose Multiplatform supports.
 
-![Demo](tiling_layout.gif)
+![Demo](tiling_layout.mp4)
 
 ---
 
@@ -39,7 +39,7 @@ Then add the dependency in your module's `build.gradle.kts`:
 
 ```kotlin
 commonMain.dependencies {
-    implementation("com.github.sbusceti.TilingLayout:tilinglayout:2.0.1")
+    implementation("com.github.sbusceti.TilingLayout:tilinglayout:2.0.2")
 }
 ```
 
@@ -102,6 +102,9 @@ node = node.add(
 // Remove a pane — its sibling absorbs the freed space
 node = node.remove("terminal")
 
+// Swap two leaf IDs (structure and ratios are preserved; only IDs move)
+node = node.swapLeaves("editor", "preview")
+
 // Apply user-dragged ratios back into the tree
 node = node.updateRatios(ratios)
 
@@ -130,7 +133,7 @@ TilingLayout(
 ) { id -> /* ... */ }
 ```
 
-The cursor changes to a resize icon on hover (desktop and web targets).
+The cursor changes to a resize icon on hover on JVM/Desktop. On other platforms (Android, iOS, JS, Wasm) the cursor falls back to the default pointer.
 
 ---
 
@@ -164,6 +167,7 @@ data class DashboardState(
 sealed interface DashboardAction {
     data class AddPane(val id: String, val targetId: String, val area: SplitArea) : DashboardAction
     data class RemovePane(val id: String) : DashboardAction
+    data class SwapPanes(val srcId: String, val dstId: String) : DashboardAction
     data class UpdateRatios(val ratios: Map<String, List<Float>>) : DashboardAction
 }
 
@@ -190,6 +194,8 @@ class DashboardViewModel : ViewModel() {
                         it.node.add(action.id, action.targetId, action.area)
                     is DashboardAction.RemovePane ->
                         it.node.remove(action.id)
+                    is DashboardAction.SwapPanes ->
+                        it.node.swapLeaves(action.srcId, action.dstId)
                     is DashboardAction.UpdateRatios ->
                         it.node.updateRatios(action.ratios)
                 }

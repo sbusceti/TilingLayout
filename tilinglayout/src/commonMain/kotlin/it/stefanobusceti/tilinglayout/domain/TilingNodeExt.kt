@@ -93,6 +93,16 @@ fun TilingNode.remove(id: String): TilingNode = when (this) {
     }
 }
 
+/**
+ * Returns a new tree with the [TilingNode.Leaf] identified by [srcId] and the one identified by
+ * [dstId] having their IDs exchanged.
+ *
+ * Only the IDs are swapped; the tree structure and all ratios remain unchanged, so each leaf
+ * keeps its current size and position while the content associated with each ID moves.
+ * If [srcId] equals [dstId], or either is blank, the original tree is returned unchanged.
+ *
+ * Must be called on the root node so the recursive search covers the entire tree.
+ */
 fun TilingNode.swapLeaves(srcId: String, dstId: String): TilingNode {
     if (srcId == dstId) return this
     if (srcId.isBlank() || dstId.isBlank()) return this
